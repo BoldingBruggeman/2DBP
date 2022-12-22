@@ -19,6 +19,7 @@
     use fabm_types, only: rk
     use io_ascii, only: get_brom_par
 
+    use fabm_omp, only: type_fabm_model => type_fabm_omp_model
 
     implicit none
     private
@@ -168,8 +169,6 @@
         diff_method, cnpar, surf_flux_with_diff, bott_flux_with_diff, bioturb_across_SWI, pF1, pF2, phi_inv, is_solid, cc0)
 
     !Calculate vertical diffusion in the water column and sediments
-
-    use fabm , only: type_fabm_model
 
     implicit none
 
@@ -459,8 +458,6 @@
 
     !Calculates vertical advection (sedimentation) in the water column and sediments
 
-    use fabm, only: type_fabm_model
-
     implicit none
 
     !Input variables
@@ -669,8 +666,6 @@
 
     !Calculates vertical advection (sedimentation) in the water column and sediments
 
-    use fabm, only: type_fabm_model
-
     implicit none
 
     !Input variables
@@ -815,17 +810,15 @@
         
         
 !=======================================================================================================================
-    subroutine calculate_bubble(i, k_max, par_max, model, cc, sink, N_bubbles, &
+    subroutine calculate_bubble(i_min, i_max, k_max, par_max, model, cc, sink, N_bubbles, &
         dcc, hz, dz, z, t, k_bbl_sed, julianday, dt, freq_float, is_gas, wbio, cc0)
 
     !Calculates floating of bubbles in the water column and sediments
 
-    use fabm, only: type_fabm_model
-
     implicit none
 
     !Input variables
-    integer, intent(in)                         :: k_max, par_max, julianday, freq_float
+    integer, intent(in)                         :: i_min, i_max, k_max, par_max, julianday, freq_float
     integer, intent(in)                         :: k_bbl_sed
     integer, dimension(:), intent(in)           :: is_gas 
     real(rk), dimension(:), intent(in)          :: hz, dz, z
@@ -845,6 +838,8 @@
     real(rk) :: dtt, rb, wbub(k_max+1)
     integer  :: i, k, ip, idf
 
+!$OMP PARALLEL DEFAULT(SHARED)
+
     dtt = dt/freq_float !Sedimentation model time step [seconds]
 !    sink(i,:,:) = 0.0_rk
 
@@ -857,7 +852,9 @@
       if (is_gas(ip).eq.1) then
         do idf=1,freq_float
     !Calculate floating fluxes at layer interfaces (sink, units strictly [mass/unit total area/second])
+!$OMP DO PRIVATE(i,rb,wbub)
           do k=1,k_max-1
+             do i=i_min, i_max
             rb = 100._rk * &     !bubble radius in [cm] (details in brom_bubble), we convert to [m]
                 (cc(i,k,ip)*0.001_rk*8.314_rk*(273.15_rk+t(i,k,julianday))/(101325.0_rk &
                 +z(k)*101325.0_rk/10.3_rk) &                        ! Volume of gas
@@ -882,22 +879,30 @@
               endif
             
             sink(i,k,ip) = -((100000.0_rk*wbub(k))*cc(i,k,ip))/100000.0_rk
+            end do
           end do
 !            sink(i,1,ip) = -((100000.0_rk*wbub(2))*cc(1,k,ip))/100000.0_rk !for the subsurface layer we take the same rate as deeper
           
     !Calculate tendencies dcc = dcc/dt = -dF/dz on layer midpoints (top/bottom not used where Dirichlet bc imposed)
+!$OMP DO PRIVATE(i)
           do k=1,k_max-1
+             do i=i_min, i_max
             dcc(i,k,ip) = (sink(i,k+1,ip)-sink(i,k,ip))/hz(k) !-1)
-          end do
     !Integrate cc() on layer midpoints 
-          do k=1,(k_max-1)
             cc(i,k,ip) = cc(i,k,ip) + dtt*dcc(i,k,ip)
+            end do
           end do
         enddo
       endif
-    enddo
+      enddo
+
     !Impose resilient concentration
-    cc(i,:,:) = max(cc0, cc(i,:,:)) 
+!$OMP DO
+    do ip=1,par_max
+      cc(:,:,ip) = max(cc0, cc(:,:,ip)) 
+    end do
+
+!$OMP END PARALLEL
 
         end subroutine calculate_bubble
 !===================================================================================

@@ -18,7 +18,7 @@
     use types_mod
     
     use netcdf
-    use fabm, only: type_fabm_model
+    use fabm_omp, only: type_fabm_model => type_fabm_omp_model
     use fabm_types, only: attribute_length, rk
 
 
@@ -61,9 +61,9 @@
     real(rk), allocatable, dimension(:), intent(out)        :: hz_w              ! Layer thicknesses
     real(rk), allocatable, dimension(:,:,:), intent(out)    :: t_w, s_w, kz_w    ! Temperature, salinity, and vertical diffusivity
     real(rk), allocatable, dimension(:,:,:), intent(out)    :: u_x_w             ! Horizontal advection [m/s]
-    real(rk), pointer, dimension(:), intent(out)            :: hice              ! Ice thickness [m]
-    real(rk), pointer, dimension(:), intent(out)            :: swradWm2          ! Ice thickness [W/m2]
-    real(rk), pointer, dimension(:), intent(out)            :: aice              ! Ice thickness [-]
+    real(rk), allocatable, dimension(:), intent(out)            :: hice              ! Ice thickness [m]
+    real(rk), allocatable, dimension(:), intent(out)            :: swradWm2          ! Ice thickness [W/m2]
+    real(rk), allocatable, dimension(:), intent(out)            :: aice              ! Ice thickness [-]
     real(rk), allocatable, dimension(:), intent(out)        :: Eair              ! 24-hr average surface downwelling shortwave irradiance in air [W/m2]
 !Input/output variables
     integer, intent(out)                        :: k_wat_bbl

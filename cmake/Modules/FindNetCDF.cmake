@@ -22,34 +22,51 @@ mark_as_advanced(NetCDF_INCLUDE_DIRS NetCDF_LIBRARIES)
 
 elseif (WIN32)
 
-set(BROMDIR $ENV{BROMDIR})
+set(GOTMDIR "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
-# On Windows: use CMake to locate paths; default to NetCDF static library provided with BROM.
+# On Windows: use CMake to locate paths; default to NetCDF static library provided with GOTM.
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+message("NetCDF 64 bit")
 find_library(NetCDF_LIBRARIES NAMES netcdfs
-             HINTS ${BROMDIR}/extras/netcdf/win32/3.6.3/lib
-             DOC "NetCDF library")
+             HINTS ${GOTMDIR}/extras/netcdf/Win64/3.6.3/lib
+             DOC "NetCDF 64bit library")
 find_path(NetCDF_INCLUDE_DIRS netcdf.mod
-          HINTS ${BROMDIR}/extras/netcdf/win32/3.6.3/include ENV NetCDFINC
-          DOC "NetCDF include directory")
+          HINTS ${GOTMDIR}/extras/netcdf/Win64/3.6.3/include ENV NetCDFINC
+          DOC "NetCDF 64bit include directory")
+get_filename_component(NetCDF_LIBRARIES_default_full "${GOTMDIR}/extras/netcdf/Win64/3.6.3/lib/netcdfs.lib" ABSOLUTE)
+else()
+message("NetCDF 32bit")
+find_library(NetCDF_LIBRARIES NAMES netcdfs
+             HINTS ${GOTMDIR}/extras/netcdf/Win32/3.6.3/lib
+             DOC "NetCDF 32bit library")
+find_path(NetCDF_INCLUDE_DIRS netcdf.mod
+          HINTS ${GOTMDIR}/extras/netcdf/Win32/3.6.3/include ENV NetCDFINC
+          DOC "NetCDF 32bit include directory")
+get_filename_component(NetCDF_LIBRARIES_default_full "${GOTMDIR}/extras/netcdf/Win32/3.6.3/lib/netcdfs.lib" ABSOLUTE)
+endif()
 
-get_filename_component(NetCDF_LIBRARIES_full ${NetCDF_LIBRARIES} ABSOLUTE)
-get_filename_component(NetCDF_LIBRARIES_default_full "${BROMDIR}/extras/netcdf/win32/3.6.3/lib/netcdfs.lib" ABSOLUTE)
-if(MSVC AND NetCDF_LIBRARIES_full STREQUAL NetCDF_LIBRARIES_default_full)
-  # Win32 NetCDF library provided with BROM is statically built against release libraries.
-  # Dependent projects need to do the same in release mode to prevent linking conflicts.
-  set(NetCDF_STATIC_MSVC_BUILD TRUE)
+list(LENGTH NetCDF_LIBRARIES LIBCOUNT)
+if(LIBCOUNT EQUAL 1)
+if(MSVC)
+  # Win32 NetCDF library may be statically built against release version of runtime libraries.
+  # If so, dependent projects need to do the same in release mode to prevent linking conflicts.
+  get_filename_component(NetCDF_LIBRARIES_full ${NetCDF_LIBRARIES} ABSOLUTE)
+  string(COMPARE EQUAL "${NetCDF_LIBRARIES_full}" "${NetCDF_LIBRARIES_default_full}" STAT)
+  option(NetCDF_STATIC_MSVC_BUILD "NetCDF library is statically linked to runtime libraries" ${STAT})
+  mark_as_advanced(NetCDF_STATIC_MSVC_BUILD)
+endif()
 endif()
 
 else()
 
-# Use environment variables: NETCDFLIBNAME, NETCDFLIBDIR, NETCDFINC
+# Use GOTM environment variables: NETCDFLIBNAME, NETCDFLIBDIR, NETCDFINC
 if(DEFINED ENV{NETCDFLIBNAME})
   set(flibs $ENV{NETCDFLIBNAME})
 else()
   set(flibs "-lnetcdf")
 endif()
 if(DEFINED ENV{NETCDFLIBDIR})
-  set(flibs "${flibs} -L$ENV{NETCDFLIBDIR}")
+  set(flibs "-L$ENV{NETCDFLIBDIR} ${flibs}")
 endif()
 set(NetCDF_LIBRARIES ${flibs} CACHE STRING "NetCDF linking flags")
 find_path(NetCDF_INCLUDE_DIRS netcdf.mod
@@ -59,9 +76,19 @@ find_path(NetCDF_INCLUDE_DIRS netcdf.mod
 endif()
 
 # Process default arguments (QUIET, REQUIRED)
-include(FindPackageHandleStandardArgs) 
-find_package_handle_standard_args (NetCDF DEFAULT_MSG NetCDF_LIBRARIES NetCDF_INCLUDE_DIRS) 
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args (NetCDF DEFAULT_MSG NetCDF_LIBRARIES NetCDF_INCLUDE_DIRS)
 
 # For backward compatibility:
 set(NetCDF_LIBRARY NetCDF_LIBRARIES)
 set(NetCDF_INCLUDE_DIR NetCDF_INCLUDE_DIRS)
+
+add_library(netcdf INTERFACE IMPORTED GLOBAL)
+set_property(TARGET netcdf APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${NetCDF_INCLUDE_DIRS}")
+set_property(TARGET netcdf APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${NetCDF_LIBRARIES}")
+if(NetCDF_STATIC_MSVC_BUILD)
+  message("Using statically built NetCDF libraries in combination with Visual Studio. Forcing all projects to link statically against runtime.")
+  set_property(DIRECTORY ${CMAKE_SOURCE_DIR} APPEND PROPERTY COMPILE_OPTIONS /libs:static)
+  set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} APPEND PROPERTY COMPILE_OPTIONS /libs:static)
+  set_property(TARGET netcdf APPEND PROPERTY INTERFACE_LINK_LIBRARIES $<$<CONFIG:DEBUG>:-NODEFAULTLIB:libcmt>)
+endif()

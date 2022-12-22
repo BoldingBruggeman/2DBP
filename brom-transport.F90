@@ -18,7 +18,7 @@
     module brom_transport
 
     ! AB check fabm subroutines
-    use fabm
+    use fabm_omp
     use fabm_types  !, only: attribute_length, rk ! check attribute_length
     use io_netcdf
     use io_ascii 
@@ -33,7 +33,7 @@
 	real(rk), parameter :: pi=3.141592653589793_rk
 
     !FABM model with all data and procedures related to biogeochemistry
-    class (type_fabm_model), pointer :: model
+    class (type_fabm_omp_model), pointer :: model
 
     type (type_horizontal_standard_variable), parameter :: id_hice = type_horizontal_standard_variable(name='hice',units='m') ! horizontal - 2D
     type (type_horizontal_standard_variable), parameter :: id_aice = type_horizontal_standard_variable(name='aice',units='-')
@@ -60,12 +60,12 @@
     character(len=64) :: icfile_name, outfile_name, ncoutfile_name
     character :: hmix_file
 
-    !Forcings to be provided to FABM: These must have the POINTER attribute
-    real(rk), pointer, dimension(:)            :: pco2_atm_1d, wind_speed_1d, hice, aice, swradWm2, swradWm2_1d, hice_1d, aice_1d
-    real(rk), pointer, dimension(:,:)          :: surf_flux, bott_flux, bott_source, Izt, pressure, depth, cell_thickness
-    real(rk), pointer, dimension(:,:,:)        :: t, s, u_x
-    real(rk), pointer, dimension(:,:,:)        :: vv, dvv, cc, cc_out, dcc, dcc_R, wbio, air_sea_flux ! add the description cc - all params, dcc - volumes of solids
-    real(rk), pointer, dimension(:,:)        :: wbio_2d
+    !Forcings to be provided to FABM: These must have the TARGET attribute
+    real(rk), allocatable, target, dimension(:)     :: pco2_atm_1d, wind_speed_1d, hice, aice, swradWm2, swradWm2_1d, hice_1d, aice_1d
+    real(rk), allocatable, target, dimension(:,:)   :: surf_flux, bott_flux, bott_source, Izt, pressure, depth, cell_thickness
+    real(rk), allocatable, target, dimension(:,:,:) :: t, s, u_x
+    real(rk), allocatable, target, dimension(:,:,:) :: vv, dvv, cc, cc_out, dcc, dcc_R, wbio, air_sea_flux ! add the description cc - all params, dcc - volumes of solids
+    real(rk), allocatable, target, dimension(:,:)   :: wbio_2d
     ! vv -> 2d
 
     !Surface and bottom forcings, used within brom-transport only
@@ -224,7 +224,7 @@
     cc_leak = get_brom_par("cc_leak")
     cc_leak2 = get_brom_par("cc_leak2")
     !Initialize FABM model from fabm.yaml
-    model => fabm_create_model()
+    model => fabm_create_omp_model()
     par_max = size(model%interior_state_variables)
 
     steps_in_yr = days_in_yr*24*3600/input_step ! determine how much timesteps in the course of the year
@@ -1131,6 +1131,7 @@
             !_____water_biogeochemistry_______!
             call model%prepare_inputs()  ! This ensures that all variables that the source routines depend on are computed. 
             dcc = 0.0_rk
+!$OMP PARALLEL DO
             do k=1,k_max
                call model%get_interior_sources (i_min, i_max, k, dcc(i_min:i_max,k,:)) 
             end do
@@ -1181,6 +1182,7 @@
        !!!do k=1,k_max
        !!!    call model%get_vertical_movement(i_min, i_max, k, wbio(i_min:i_max,k,:)) !Note: wbio is on layer midpoints
        !!!end do
+!$OMP PARALLEL DO
        do k=1,k_max
            call model%get_vertical_movement(i_min, i_max, k, wbio(i_min:i_max,k,:)) !Note: wbio is on layer midpoints
        end do       
@@ -1212,11 +1214,13 @@
     !    enddo
        !_______Bubble rising_________!
         dcc = 0.0_rk
-        do i=i_min, i_max
-            call calculate_bubble(i, k_max, par_max, model, cc, sink, N_bubbles, &
+
+        !do i=i_min, i_max
+            call calculate_bubble(i_min, i_max, k_max, par_max, model, cc, sink, N_bubbles, &
                 dcc, hz, dz, z, t, k_bbl_sed, julianday, dt, freq_float, &
                is_gas, wbio, cc0)
-        enddo
+        !enddo
+
        !_______Calculate changes of volumes of cells_________!
         dVV(:,:,1)=0.0
         do i=i_min, i_max
